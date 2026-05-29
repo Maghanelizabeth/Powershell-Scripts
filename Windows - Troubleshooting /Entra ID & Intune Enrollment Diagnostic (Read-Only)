@@ -1,0 +1,87 @@
+Collects Microsoft Entra ID (Azure AD) join, Primary Refresh Token (PRT), MDM enrollment, and Intune diagnostic information into a timestamped log file for troubleshooting device registration and auto-enrollment issues.
+
+Detailed Description
+
+This PowerShell script performs a non-invasive diagnostic assessment of a Windows device's Microsoft Entra ID and Intune enrollment status by:
+
+Creating a timestamped diagnostic log file in the Public user profile.
+Collecting and recording:
+dsregcmd /status output
+MDM auto-enrollment policy settings
+Enrollment registry configuration
+OMADM account information
+Retrieving recent authentication events from:
+Microsoft Entra ID Operational logs
+Retrieving recent device enrollment events from:
+Device Management Enterprise Diagnostics Provider (DMEDP) logs
+Performing a quick health assessment of:
+Azure AD Primary Refresh Token (PRT) status
+Azure AD user registration state
+MDM enrollment URL presence
+Consolidating all findings into a single text report for analysis.
+What It Checks
+Entra ID device registration status
+Azure AD Join state
+Hybrid Join indicators
+Primary Refresh Token (PRT) availability
+Intune auto-enrollment policy configuration
+MDM enrollment records
+OMADM account registration
+Authentication failures and token issues
+Device enrollment failures and MDM errors
+
+
+
+
+# =========================================
+# FIXED Entra / Intune Diagnostic Script
+# READ ONLY - safe
+# =========================================
+
+$LogFile = "$env:PUBLIC\MDM_Diag_FIXED_$(Get-Date -Format yyyyMMdd_HHmmss).txt"
+
+function Section($t) {
+    "`n====================" | Tee-Object -FilePath $LogFile -Append
+    $t | Tee-Object -FilePath $LogFile -Append
+    "====================" | Tee-Object -FilePath $LogFile -Append
+}
+
+function Run($cmd) {
+    "`n> $cmd`n" | Tee-Object -FilePath $LogFile -Append
+    cmd /c $cmd 2>&1 | Tee-Object -FilePath $LogFile -Append
+}
+
+Section "1. DSREGCMD STATUS"
+Run "dsregcmd /status"
+
+Section "2. MDM AUTO-ENROLLMENT POLICY"
+Run "reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM"
+
+Section "3. ENROLLMENT REGISTRY STATE"
+Run "reg query HKLM\SOFTWARE\Microsoft\Enrollments"
+Run "reg query HKLM\SOFTWARE\Microsoft\Provisioning\OMADM\Accounts"
+
+Section "4. AAD AUTH LOGS (PRT / WAM ISSUES)"
+Get-WinEvent -LogName "Microsoft-Windows-AAD/Operational" -MaxEvents 100 |
+Select TimeCreated, Id, Message |
+Out-String | Tee-Object -FilePath $LogFile -Append
+
+Section "5. DEVICE ENROLLMENT LOGS (THIS IS CRITICAL)"
+Get-WinEvent -LogName "Microsoft-Windows-DeviceManagement-Enterprise-Diagnostics-Provider/Admin" `
+-ErrorAction SilentlyContinue -MaxEvents 100 |
+Select TimeCreated, Id, LevelDisplayName, Message |
+Out-String | Tee-Object -FilePath $LogFile -Append
+
+Section "6. QUICK STATE CHECK"
+
+$ds = dsregcmd /status 2>&1 | Out-String
+
+$prt = if ($ds -match "AzureAdPrt\s*:\s*YES") {"YES"} else {"NO"}
+$aad = if ($ds -match "IsUserAzureAD\s*:\s*YES") {"YES"} else {"NO"}
+$mdm = if ($ds -match "MDMUrl\s*:\s*(.+)") {"FOUND"} else {"MISSING"}
+
+"AzureAdPrt: $prt" | Tee-Object -FilePath $LogFile -Append
+"IsUserAzureAD: $aad" | Tee-Object -FilePath $LogFile -Append
+"MDMUrl: $mdm" | Tee-Object -FilePath $LogFile -Append
+
+Write-Host "`nDONE - Log saved to $LogFile" -ForegroundColor Green
