@@ -1,0 +1,55 @@
+## Windows Update Repair and System Integrity Recovery Script
+
+## This script automates a full reset and repair process for Windows Update components and related system services. It is designed to resolve common update failures caused by corrupted update cache, broken service registrations, or system component inconsistencies.
+
+## The script performs the following actions:
+
+1. Stops key Windows Update-related services (Windows Update, BITS, Cryptographic Services, and MSI Installer)
+2. Renames the SoftwareDistribution and Catroot2 folders to force regeneration of update cache files
+3. Restarts all previously stopped services to restore normal update functionality
+4. Clears residual cached update files from renamed directories
+5. Re-registers critical Windows Update and system DLL components using regsvr32
+6. Resets Winsock and proxy configurations to repair network-related update issues
+7. Executes system integrity and repair tools:
+8. System File Checker (sfc /scannow)
+9. DISM health checks and image repair (CheckHealth, ScanHealth, RestoreHealth, and component cleanup)
+
+
+@echo off
+echo Stopping Windows Update services...
+net stop wuauserv
+net stop cryptSvc
+net stop bits
+net stop msiserver
+echo Renaming SoftwareDistribution and Catroot2 folders...
+ren C:\Windows\SoftwareDistribution SoftwareDistribution.old
+ren C:\Windows\System32\catroot2 Catroot2.old
+echo Restarting Windows Update services...
+net start wuauserv
+net start cryptSvc
+net start bits
+net start msiserver
+echo Clearing the update cache...
+del /q /s C:\Windows\SoftwareDistribution.old\*.*
+del /q /s C:\Windows\System32\Catroot2.old\*.* 
+echo Registering Windows Update DLLs...
+regsvr32.exe /s wuaueng.dll
+regsvr32.exe /s wuapi.dll
+regsvr32.exe /s wups.dll
+regsvr32.exe /s wucltux.dll
+regsvr32.exe /s wuwebv.dll
+regsvr32.exe /s jscript.dll
+regsvr32.exe /s msxml3.dll
+regsvr32.exe /s atl.dll
+regsvr32.exe /s softpub.dll
+regsvr32.exe /s urlmon.dll
+regsvr32.exe /s mshtml.dll
+netsh winsock reset
+netsh winsock reset proxy
+echo Performing SFC scan...
+sfc /scannow
+dism.exe /Online /Cleanup-image /CheckHealth
+dism.exe /Online /Cleanup-image /ScanHealth
+dism /Online /Cleanup-image /StartComponentCleanup
+dism.exe /Online /Cleanup-image /RestoreHealth
+echo Windows Update troubleshooting complete.
