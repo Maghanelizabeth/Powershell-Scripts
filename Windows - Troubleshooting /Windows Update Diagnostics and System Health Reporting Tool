@@ -1,0 +1,414 @@
+This PowerShell script is a comprehensive Windows Update troubleshooting and system diagnostics utility designed to collect, analyze, 
+and correlate update-related issues across system logs and generate actionable remediation guidance to junior Cybersecurity Analysts.
+
+
+How to Use:
+	1. Save the Script: Copy the above script into a text editor and save it as Get-WindowsUpdateDiagnostics.ps1.
+	2. Run the Script:
+		○ Open PowerShell as Administrator.
+		○ Navigate to the directory where the script is saved.
+		○ Execute the script by typing .\Get-WindowsUpdateDiagnostics.ps1.
+	3. Review the Report:
+		○ The script will generate a .txt file on the C: drive with a timestamped filename, e.g., C:\WindowsUpdateDiagnostics_20250610_115108.txt.
+		○ This file will contain:
+			§ System summary.
+			§ Extracted errors from WindowsUpdate.log and CBS.log.
+			§ List of failed KB updates.
+			§ Suggested remediations.
+Relevant Event Viewer logs.
+
+
+# Get-WindowsUpdateDiagnostics.ps1
+ 
+function Get-SystemSummary {
+    Write-Output "=== System Summary ==="
+    $os = Get-CimInstance -ClassName Win32_OperatingSystem
+    $cpu = Get-CimInstance -ClassName Win32_Processor
+    $freeSpace = Get-PSDrive -PSProvider 'FileSystem' | Where-Object {$_.Name -eq 'C'}
+    $ramKB = $os.TotalVisibleMemorySize
+    $ramGB = [math]::Round($ramKB / 1024 / 1024, 2)
+ 
+    [PSCustomObject]@{
+        OS              = $os.Caption
+        OSVersion       = $os.Version
+        Architecture    = $os.OSArchitecture
+        LastBootTime    = $os.LastBootUpTime
+        CPU             = $cpu.Name
+        RAM_GB          = $ramGB
+        Disk_C_Free_GB  = [math]::Round($freeSpace.Free / 1GB, 2)
+        Disk_C_Total_GB = [math]::Round($freeSpace.Used / 1GB + $freeSpace.Free / 1GB, 2)
+    }
+}
+
+function Parse-WindowsUpdateLog {
+    param($logPath)
+    Write-Output "`n=== WindowsUpdate.log Issues (Today Only) ==="
+
+    if (-not (Test-Path $logPath)) {
+        Write-Warning "WindowsUpdate.log not found at $logPath"
+        return
+    }
+
+    $startOfToday = (Get-Date).Date
+    $keywords = @('error', 'fail', 'failed', 'failing', 'warning')
+    $logLines = Get-Content -Path $logPath
+    $filteredLines = @()
+    $lastTimestamp = $null
+
+    foreach ($line in $logLines) {
+        # Extract timestamp from the beginning of the line with format: yyyy/MM/dd HH:mm:ss.fffffff
+        if ($line -match '^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d+)') {
+            $timestampString = $matches[1]
+            try {
+                # Parse with exact format (up to 7 fractional seconds)
+                $lastTimestamp = [datetime]::ParseExact($timestampString, 'yyyy/MM/dd HH:mm:ss.fffffff', $null)
+            } catch {
+                # fallback to generic parse if needed
+                $lastTimestamp = [datetime]::Parse($timestampString)
+            }
+        }
+
+        # Check if line contains any of the keywords (case-insensitive)
+        $containsKeyword = $false
+        foreach ($keyword in $keywords) {
+            if ($line.IndexOf($keyword, [System.StringComparison]::InvariantCultureIgnoreCase) -ge 0) {
+                $containsKeyword = $true
+                break
+            }
+        }
+
+        if ($containsKeyword -and $lastTimestamp -and $lastTimestamp.Date -eq $startOfToday) {
+            $filteredLines += $line
+        }
+    }
+
+    if ($filteredLines.Count -eq 0) {
+        Write-Output "No matching entries found in WindowsUpdate.log for today."
+    } else {
+        $filteredLines
+    }
+}
+
+
+ 
+function Parse-CBSLog {
+    param($logPath)
+    Write-Output "`n=== CBS.log Failures (Today Only) ==="
+
+    if (-not (Test-Path $logPath)) {
+        Write-Warning "CBS.log not found at $logPath"
+        return
+    }
+
+    $startOfToday = (Get-Date).Date
+    $keywords = @('error', 'fail', 'failed', 'failure', 'warning')
+    $logLines = Get-Content -Path $logPath
+    $filteredLines = @()
+    $lastTimestamp = $null
+
+    foreach ($line in $logLines) {
+        # Extract timestamp from the beginning of the line if possible
+        # CBS.log format usually starts with "YYYY-MM-DD HH:MM:SS"
+        if ($line -match '^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})') {
+            $timestampString = $matches[1]
+            try {
+                $lastTimestamp = [datetime]::ParseExact($timestampString, 'yyyy-MM-dd HH:mm:ss', $null)
+            } catch {
+                $lastTimestamp = $null
+            }
+        }
+
+        # Check if line contains any keyword (case-insensitive)
+        $containsKeyword = $false
+        foreach ($keyword in $keywords) {
+            if ($line.IndexOf($keyword, [System.StringComparison]::InvariantCultureIgnoreCase) -ge 0) {
+                $containsKeyword = $true
+                break
+            }
+        }
+
+        if ($containsKeyword -and $lastTimestamp -and $lastTimestamp.Date -eq $startOfToday) {
+            $filteredLines += $line
+        }
+    }
+
+    if ($filteredLines.Count -eq 0) {
+        Write-Output "No matching entries found in CBS.log for today."
+    } else {
+        $filteredLines
+    }
+}
+
+
+
+ 
+function Extract-KBFailures {
+    param($logPath)
+    Write-Output "`n=== Suspected Failed KB Updates ==="
+    if (Test-Path $logPath) {
+        Select-String -Path $logPath -Pattern 'KB\d{7}' | ForEach-Object {
+            $_.Matches.Value
+        } | Sort-Object | Get-Unique
+    }
+}
+ 
+function Suggest-Remediation {
+    param([string[]]$logLines)
+    Write-Output "`n=== Suggested Remediations ==="
+    $remediations = @()
+
+    foreach ($line in $logLines) {
+        if ($line -match "0x800f081f") {
+            $remediations += "[0x800f081f] Missing source files. Try using 'DISM /Online /Cleanup-Image /RestoreHealth'."
+        }
+  	if ($line -match "0x80070005") {
+            $remediations += "[0x80070005]Access Denied. Ensure you are logged in as an Administrator and check permissions on the Windows Update folders."
+        }
+        if ($line -match "0x80073701") {
+            $remediations += "[0x80073701] Some update files are missing or have problems. Try SFC and DISM."
+        }
+        if ($line -match "0x8024a105") {
+            $remediations += "[0x8024a105] Restart Windows Update services and clear SoftwareDistribution folder."
+        }
+        if ($line -match "0x80070020") {
+            $remediations += "[0x80070020] File is locked by another process. Close any applications that might be using the file."
+        }
+        if ($line -match "0x80070057") {
+            $remediations += "[0x80070057] Invalid parameter. Ensure that the update package is correct and try again."
+        }
+        if ($line -match "0x800f0831") {
+            $remediations += "[0x800f0831] Previous update is missing. Download and install the missing update manually."
+        }
+        if ($line -match "0x80240001") {
+            $remediations += "[0x80240001] Windows Update Agent was unable to provide the service. Restart the Windows Update service."
+        }
+        if ($line -match "0x80240002") {
+            $remediations += "[0x80240002] The maximum capacity of the service was exceeded. Wait for a while and try again."
+        }
+        if ($line -match "0x80240003") {
+            $remediations += "[0x80240003] An ID can't be found. Ensure that the update ID is correct."
+        }
+        if ($line -match "0x80240004") {
+            $remediations += "[0x80240004] The object couldn't be initialized. Restart the Windows Update service."
+        }
+        if ($line -match "0x80240005") {
+            $remediations += "[0x80240005] The update handler requested a byte range overlapping a previously requested range."
+        }
+        if ($line -match "0x80240006") {
+            $remediations += "[0x80240006] The requested number of byte ranges exceeds the maximum number."
+        }
+        if ($line -match "0x80070570") {
+            $remediations += "[0x80070570] Corrupted file. Redownload the update or check for disk errors."
+        }
+        if ($line -match "0x800705b4") {
+            $remediations += "[0x800705b4] Update timed out. Restart the computer and try updating again."
+        }
+        if ($line -match "0x80070103") {
+            $remediations += "[0x80070103] Driver already installed. Check Device Manager for driver status."
+        }
+        if ($line -match "0xC1900101") {
+            $remediations += "[0xC1900101] Driver error. Update drivers and disconnect unnecessary hardware."
+        }
+        if ($line -match "0xC1900200") {
+            $remediations += "[0xC1900200] PC doesn't meet upgrade requirements. Check system specifications."
+        }
+        if ($line -match "0xC1900202") {
+            $remediations += "[0xC1900202] Incompatible driver or software. Update or remove incompatible software."
+        }
+        if ($line -match "0xC1900209") {
+            $remediations += "[0xC1900209] Incompatible application. Uninstall or update incompatible applications."
+        }
+        if ($line -match "0xC1900210") {
+            $remediations += "[0xC1900210] Incompatible driver. Update or remove incompatible drivers."
+        }
+        if ($line -match "0xC1900214") {
+            $remediations += "[0xC1900214] Not enough disk space. Free up space and try again."
+        }
+        if ($line -match "0xC1900223") {
+            $remediations += "[0xC1900223] Incompatible driver or application. Update or remove incompatible drivers or applications."
+        }
+        if ($line -match "0xC1900301") {
+            $remediations += "[0xC1900301] Driver error. Update drivers and disconnect unnecessary hardware."
+        }
+        if ($line -match "0xC1900302") {
+            $remediations += "[0xC1900302] Driver error. Update drivers and disconnect unnecessary hardware."
+        }
+        if ($line -match "0x80240017") {
+            $remediations += "[0x80240017] Update not applicable. Check if the update applies to your system."
+        }
+        if ($line -match "0x8024001F") {
+            $remediations += "[0x8024001F] Network connection unavailable. Check your internet connection."
+        }
+        if ($line -match "0x8024002E") {
+            $remediations += "[0x8024002E] Access to unmanaged server not allowed. Check Windows Update settings."
+        }
+        if ($line -match "0x80240034") {
+            $remediations += "[0x80240034] Update download failed. Check internet connection and retry."
+        }
+        if ($line -match "0x80240035") {
+            $remediations += "[0x80240035] Update not processed. Retry the update."
+        }
+        if ($line -match "0x80240036") {
+            $remediations += "[0x80240036] Invalid operation. Retry the update."
+        }
+        if ($line -match "0x80240037") {
+            $remediations += "[0x80240037] Operation not supported. Check system compatibility."
+        }
+        if ($line -match "0x80240038") {
+            $remediations += "[0x80240038] Invalid file format. Ensure the update file is correct."
+        }
+        if ($line -match "0x80240039") {
+            $remediations += "[0x80240039] Too many resync requests. Wait and try again."
+        }
+        if ($line -match "0x80240040") {
+            $remediations += "[0x80240040] WSUS server not supported. Check server configuration."
+        }
+        if ($line -match "0x80240041") {
+            $remediations += "[0x80240041] Sysprep in progress. Wait for Sysprep to complete."
+        }
+        if ($line -match "0x80240042") {
+            $remediations += "[0x80240042] Update service no longer registered. Reinstall update service."
+        }
+        if ($line -match "0x80241001") {
+            $remediations += "[0x80241001] Windows Installer version too low. Update Windows Installer."
+        }
+        if ($line -match "0x80241002") {
+            $remediations += "[0x80241002] Windows Installer not configured. Configure Windows Installer."
+        }
+        if ($line -match "0x80241003") {
+            $remediations += "[0x80241003] Windows Installer patching disabled. Enable Windows Installer patching."
+        }
+        if ($line -match "0x80241004") {
+            $remediations += "[0x80241004] Application installed per-user. Install application per-machine."
+        }
+        if ($line -match "0x80241FFF") {
+            $remediations += "[0x80241FFF] Windows Installer failure. Check Windows Installer logs."
+	}
+ 	if ($line -match "0x8007000D") {
+            $remediations += "[0x8007000D]Problem with Windows Update files or corruption in the update cache. Run 'sfc /scannow' and 'DISM /Online /Cleanup-Image /RestoreHealth'."
+        }
+        if ($line -match "0x80070570") {
+            $remediations += "[0x80070570]The file or directory is corrupted and unreadable. Run 'chkdsk' to check for disk errors."
+        }
+        if ($line -match "0x80070422") {
+            $remediations += "[0x80070422]The service cannot be started. Check if the Windows Update service is running and set to 'Automatic'."
+        }
+        if ($line -match "0x80070020") {
+            $remediations += "[0x80070020]File is locked by another process. Close any applications that might be using the file."
+        }
+        if ($line -match "0x80070057") {
+            $remediations += "[0x80070057]The parameter is incorrect. Ensure that the update package is correct and try again."
+        }
+        if ($line -match "0x800F081F") {
+            $remediations += "[0x800F081F]The source files could not be found. Ensure that the required feature or files are available."
+        }
+        if ($line -match "0x80240017") {
+            $remediations += "[0x80240017]The update is not applicable. Clear the Software Distribution folder and try again."
+        }
+        if ($line -match "0x80070002") {
+            $remediations += "[0x80070002]The system cannot find the file specified. Check the Windows Update service status and reset components."
+        }
+        if ($line -match "0x800F0922") {
+            $remediations += "[0x800F0922]The update couldn't be installed. Check your internet connection and ensure the system has installed the update in KB4493473 or later."
+        }
+        if ($line -match "0x80070070") {
+            $remediations += "[0x80070070]Insufficient disk space. Free up space on the drive and try again."
+        }
+        if ($line -match "0x80070570") {
+            $remediations += "[0x80070570]The file or directory is corrupted and unreadable. Run 'chkdsk' to check for disk errors."
+        }
+        if ($line -match "0x80070490") {
+            $remediations += "[0x80070490]Element not found. Run 'DISM /Online /Cleanup-Image /RestoreHealth' and 'sfc /scannow'."
+        }
+        if ($line -match "0x80245006") {
+            $remediations += "[0x80245006]The download is stuck. Clear the Software Distribution folder and reset Windows Update components."
+        }
+        if ($line -match "0x80096010") {
+            $remediations += "[0x80096010]The update could not be installed because the certificate is not valid. Check your date and time settings."
+        }
+        if ($line -match "0x80244007") {
+            $remediations += "[0x80244007]SOAP client failed due to a SOAP fault. This issue occurs because Windows can't renew the cookies for Windows Update. For more information, see 0x80244007 error when Windows tries to scan for 	updates on a WSUS server."
+        }
+        if ($line -match "0x80070422") {
+            $remediations += "[0x80070422]The service cannot be started. Check if the Windows Update service is running and set to 'Automatic'."
+        }
+        if ($line -match "0x800F0821") {
+            $remediations += "[0x800F0821]CBS transaction timeout exceeded. A servicing operation is taking a long time to complete. The servicing stack watchdog timer expires. Extending the timeout will mitigate the issue. Increase the 	resources on the device. If a virtual machine, increase virtual CPU and memory to speed up operations. Make sure the device has installed the update in KB4493473 or later."
+        }
+        if ($line -match "0x800F0825") {
+            $remediations += "[0x800F0825]Package can't be uninstalled. Repair the component store with 'DISM /Online /Cleanup-Image /RestoreHealth'."
+        }
+        if ($line -match "0x800F0920") {
+            $remediations += "[0x800F0920]A failure to respond was detected while processing the operation. Increase the resources on the device. If a virtual machine, increase virtual CPU and memory to speed up operations. Make sure 	the device has installed the update in KB4493473 or later."
+        }
+        if ($line -match "0x800F081F") {
+            $remediations += "[0x800F081F]The source files could not be found. Ensure that the required feature or files are available."
+        }
+        if ($line -match "0x80240017") {
+            $remediations += "[0x80240017]The update is not applicable. Clear the Software Distribution folder and try again."
+        }
+        if ($line -match "0x80070002") {
+            $remediations += "[0x80070002]The system cannot find the file specified. Check the Windows Update service status and reset components."
+        }
+        if ($line -match "0x800F0922") {
+            $remediations += "[0x800F0922]The update couldn't be installed. Check your internet connection and ensure the system has installed the update in KB4493473 or later."
+        }
+    }
+
+     if ($remediations.Count -eq 0) {
+        Write-Output "No known error codes found in the provided log lines."
+    } else {
+        $remediations | Sort-Object | Get-Unique
+    }
+}
+
+
+ 
+function Get-EventViewerLogs {
+    Write-Output "`n=== Event Viewer Logs for Windows Update ==="
+    $events = Get-WinEvent -LogName "System" | Where-Object {
+        $_.ProviderName -eq "Microsoft-Windows-WindowsUpdateClient" -and $_.Id -eq 20
+    }
+ 
+    $events | ForEach-Object {
+        "Event ID: $($_.Id) - Time: $($_.TimeCreated) - Message: $($_.Message)"
+    }
+}
+ 
+# === MAIN EXECUTION ===
+ 
+$windowsUpdateLog = "$env:TEMP\WindowsUpdate.log"
+Write-Output "`nGenerating latest WindowsUpdate.log..."
+Get-WindowsUpdateLog -LogPath $windowsUpdateLog | Out-Null
+ 
+$cbsLog = "C:\Windows\Logs\CBS\CBS.log"
+ 
+$systemSummary = Get-SystemSummary
+$systemSummary | Format-List
+ 
+$wuErrors = Parse-WindowsUpdateLog -logPath $windowsUpdateLog
+$cbsErrors = Parse-CBSLog -logPath $cbsLog
+ 
+$failedKBs = Extract-KBFailures -logPath $cbsLog
+ 
+$allLogs = $wuErrors + $cbsErrors
+$suggestions = Suggest-Remediation -logLines $allLogs
+ 
+$eventLogs = Get-EventViewerLogs
+ 
+$reportPath = "C:\WindowsUpdateDiagnostics_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+$reportContent = @()
+ 
+$reportContent += $systemSummary | Format-List | Out-String
+$reportContent += $wuErrors
+$reportContent += $cbsErrors
+$reportContent += $eventLogs
+$reportContent += $failedKBs
+$reportContent += $suggestions
+ 
+$reportContent | Out-File -FilePath $reportPath
+ 
+Write-Output "`nDiagnostic report saved to $reportPath"
+
+
+
