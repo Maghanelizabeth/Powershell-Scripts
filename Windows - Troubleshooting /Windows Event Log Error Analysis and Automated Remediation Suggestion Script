@@ -1,0 +1,405 @@
+##I developed this tool to simplify and accelerate the diagnosis of critical system errors on Windows machines.
+##It is designed primarily for junior technicians or users with limited experience interpreting Windows Event Viewer logs, enabling them to quickly identify and respond to system issues without deep log analysis knowledge.
+
+##The tool automatically identifies high-impact Event IDs associated with system services, hardware failures, power events, BIOS and CPU anomalies, memory pressure, disk errors, and PCI-related faults. 
+##For each detected event, it generates a clear human-readable explanation along with practical remediation steps.
+
+##How to Use:
+	1. Save the Script: Copy the above script into a text editor and save it as log_diagnoser.ps1.
+	2. Run the Script:
+		○ Open PowerShell as Administrator.
+		○ Navigate to the directory where the script is saved.
+##Execute the script by typing .\log_diagnoser.ps1.
+
+
+
+
+$logs = @("System", "Application", "Security")
+$startTime = (Get-Date).AddHours(-2)  # Only get events from the last 2 hours
+
+# Store all remediations found with source log info
+$allRemediations = @()
+
+foreach ($log in $logs) {
+    Write-Host "`n=== Errors in $log Log (Last 2 Hours) ===" -ForegroundColor Cyan
+
+    try {
+        $filter = @{
+            LogName   = $log
+            Level     = 2             # Error level
+            StartTime = $startTime
+        }
+
+        $errorEvents = Get-WinEvent -FilterHashtable $filter -ErrorAction Stop
+
+        if ($errorEvents.Count -eq 0) {
+            Write-Host "No errors found in $log log in the last 2 hours." -ForegroundColor Green
+        } else {
+            foreach ($event in $errorEvents) {
+                Write-Host "[$($event.TimeCreated)] Event ID: $($event.Id) Source: $($event.ProviderName)"
+                Write-Host "Message: $($event.Message)"
+
+                # Determine remediation suggestion for the event
+               $remediation = switch ($event.Id) {
+
+    # System General Errors
+5719	{ "Event ID: 5719 This computer was not able to set up a secure session with a domain controller in domain EPBDOM due to the following:An internal error occurred.
+This may lead to authentication problems. Make sure that this computer is connected to the network. If the problem persists, please contact your domain administrator." }
+1129	{ "Event ID: 1129 The processing of Group Policy failed because of lack of network connectivity to a domain controller. This may be a transient condition. A success message would be generated once the machine gets connected to the domain controller and Group Policy has successfully processed. If you do not see a success message for several hours, then contact your administrator." }
+1023 	{ "Event ID: 1023 Navigate to C:\Windows\System32\ and check if sysmain.dll exists.If it's missing, you can try repairing Windows system files running sfc /scannow" }
+9006	{ "Event ID: 9006 Faulty or incompatible devices may trigger these errors during power transitions. Try removing them and retest." }
+1796	{ "Event ID: 1796 The Secure Boot update failed to update a Secure Boot variable with error Secure Boot is not enabled on this machine.. For more information, please see https://go.microsoft.com/fwlink/?linkid=2169931" }
+7023	{ "Event ID: 7023 This error means the Intel Rapid Storage middleware service failed to start, likely due to: Incompatible or corrupted drivers, OS or hardware mismatch,Failed or missing dependent components,Reinstalling or updating the RST drivers typically resolves the issue." }
+    41    { "Event ID: 41 Unexpected shutdown detected. Check hardware, power supply, and drivers." }
+    55    { "Event ID: 55 File system corruption detected. Run 'chkdsk /f /r' to repair disk errors." }
+    57    { "Event ID: 57 Disk write failure. Check disk hardware and cables." }
+    58    { "Event ID: 58 Disk controller error. Check hardware and update drivers." }
+    59    { "Event ID: 59 Cache manager error. Consider system reboot or disk checks." }
+    60    { "Event ID: 60 Critical power failure. Check UPS and power supply." }
+    61    { "Event ID: 61 Power supply failure. Inspect hardware for faults." }
+    62    { "Event ID: 62 Hardware failure detected. Check hardware logs and diagnostics." }
+    100   { "Event ID: 100 Windows update installation failure. Check logs and retry update." }
+    101   { "Event ID: 101 Service start failure. Check service dependencies and configuration." }
+    1053  { "Event ID: 1053 Service did not respond to start request. Investigate service configuration." }
+    1074  { "Event ID: 1074 System restart or shutdown initiated by user or process." }
+    109   { "Event ID: 109 System time changed. Check for synchronization issues." }
+    1102  { "Event ID: 1102 Audit log cleared. Check for possible security breaches." }
+    2019  { "Event ID: 2019 Server is running low on non-paged pool memory. Investigate memory leaks." }
+    2020  { "Event ID: 2020 Server is running low on paged pool memory. Check resource usage." }
+    2039  { "Event ID: 2039 A critical driver failed to load. Check driver installation and signatures." }
+    4001  { "Event ID: 4001 Windows Defender error. Check Defender logs and update virus definitions." }
+    5001  { "Event ID: 5001 Volume Shadow Copy service error. Check VSS configuration and services." }
+    6008  { "Event ID: 6008 Unexpected system shutdown detected. Investigate cause." }
+    7023  { "Event ID: 7023 Service terminated unexpectedly. Review service error logs." }
+    7024  { "Event ID: 7024 Service failed to start with error code. Check service dependencies." }
+    7026  { "Event ID: 7026 Driver failed to load. Update or reinstall driver." }
+    7031  { "Event ID: 7031 Service crashed unexpectedly. Enable service recovery options." }
+    7034  { "Event ID: 7034 Service stopped unexpectedly. Investigate recent changes." }
+    7040  { "Event ID: 7040 Service startup type changed. Confirm intentional change." }
+    7045  { "Event ID: 7045 Service installed. Verify legitimacy of new service." }
+    7156  { "Event ID: 7156 User logon failed. Check user credentials and policies." }
+    8193  { "Event ID: 8193 System Restore failed. Check disk space and restore point settings." }
+    8224  { "Event ID: 8224 Driver package failed to install. Update or rollback driver." }
+    8283  { "Event ID: 8283 Disk failure detected. Run diagnostics and check SMART status." }
+    1014  { "Event ID: 1014 DNS client events. Verify network connectivity and DNS settings." }
+    1105  { "Event ID: 1105 Event log service failure. Restart service and check logs." }
+    1511  { "Event ID: 1511 User profile service failed to load user profile. Check profile corruption." }
+    1530  { "Event ID: 1530 User profile service failed to unload user profile." }
+    577   { "Event ID: 577 Code integrity determined that the image hash is not valid. Check driver signing." }
+    8194  { "Event ID: 8194 Failed to create system restore point. Check Volume Shadow Copy." }
+    36888 { "Event ID: 36888 Schannel SSL/TLS error. Verify certificates and network settings." }
+    11    { "Event ID: 11 Disk controller error. Check physical disks and cables." }
+    129   { "Event ID: 129 Disk timeout error. Check disk health and controller." }
+    51    { "Event ID: 51 Disk read/write error. Run disk checks and diagnostics." }
+    157   { "Event ID: 157 Windows Update Agent error. Clear update cache and retry." }
+    0x80070005 { "Event ID: 0x80070005 Access denied error. Run as administrator and verify permissions." }
+    0x80070570 { "Event ID: 0x80070570 Corrupt files detected. Run 'sfc /scannow' and 'DISM /Online /Cleanup-Image /RestoreHealth'." }
+    0x800F081F { "Event ID: 0x800F081F Missing source files. Run DISM to repair system image." }
+    0x80240017 { "Event ID: 0x80240017 Update not applicable. Clear Windows Update cache and retry." }
+7000   { "Event ID: 7000 A service failed to start - Remediation: Check the service dependencies, ensure required 	services are running, verify service account permissions, and 	review related system logs for detailed 	errors." }
+7001   { "Event ID: 7001 A service dependency failed to start - Remediation: Identify the dependent service that 	failed, ensure it is configured correctly and can start without 	issues, then restart the affected 	service." }
+7009   { "Event ID: 7009 A service did not respond to the start or control request in a timely fashion - 	Remediation: Increase the service timeout period in the registry or 	optimize the service startup process to 	respond faster." }
+7011   { "Event ID: 7011 A service timeout occurred - Remediation: Investigate the service causing the delay, check 	for resource constraints or conflicts, and consider increasing 	timeout settings or repairing the 	service." }
+1001   { "Event ID: 1001 Windows Error Reporting - System crash or bugcheck - Remediation: Analyze the memory dump 	files using debugging tools, update device drivers, check for 	hardware issues, and apply recommended system 	patches." }
+15     { "Event ID: 15 Disk Device not ready - Remediation: Check physical connections of the disk, run hardware 	diagnostics, update storage controller drivers, or replace the 	failing disk if necessary." }
+153    { "Event ID: 153 Disk error - Controller error on \\Device\\Harddisk - Remediation: Verify storage 	controller drivers are up to date, check cables and connections, run disk 	diagnostics, and consider 	replacing faulty hardware components." }
+2003   { "Event ID: 2003 Resource-Exhaustion-Detector - Memory pressure detected - Remediation: Close unnecessary 	applications, increase physical RAM, optimize system startup 	programs, and check for memory leaks or 	malware." }
+10016  { "Event ID: 10016 DistributedCOM permission error (can cause system issues) - Remediation: Modify the 	permissions in Component Services for the affected CLSID and AppID, 	ensuring correct DCOM permissions for 	the service or user." }
+6009   { "Event ID: 6009 System startup - BIOS version info logged - Remediation: Confirm BIOS version is up to 	date; if not, update BIOS firmware carefully following vendor 	instructions." }
+6013   { "Event ID: 6013 System uptime - Remediation: No direct action required, used mainly for monitoring system 	availability and uptime." }
+11708  { "Event ID: 11708 CPU thermal trip detected (system overheating protection) - Remediation: Clean dust from 	cooling fans and heat sinks, ensure proper airflow, check thermal 	paste, and verify the CPU cooler is 	functioning properly." }
+3001   { "Event ID: 3001 WHEA (Windows Hardware Error Architecture) - Corrected hardware error reported - 	Remediation: Monitor the hardware closely for recurring errors, update 	firmware/drivers, and run hardware 	diagnostics." }
+37     { "Event ID: 37 Processor detected error - CPU error - Remediation: Check for BIOS and driver updates, 	ensure proper CPU cooling, run hardware diagnostics, and consider CPU 	replacement if errors persist." }
+39     { "Event ID: 39 Processor performance monitoring error - Remediation: Update CPU drivers and BIOS, check for 	overheating, and ensure power supply stability." }
+50     { "Event ID: 50 PAGE_FAULT_IN_NONPAGED_AREA - Memory hardware error - Remediation: Run memory diagnostics 	(e.g., Windows Memory Diagnostic or MemTest86), reseat or replace faulty RAM modules." }
+13     { "Event ID: 13 Disk - Controller detected an error on device - Remediation: Check disk cables and 	connections, update or reinstall storage controller drivers, and run disk diagnostics." }
+14     { "Event ID: 14 Disk - Device failure detected - Remediation: Backup data immediately, run hardware 	diagnostics, and prepare to replace the failing disk." }
+102    { "Event ID: 102 Hardware error - PCI Express Root Port Error - Remediation: Update motherboard chipset and 	PCIe device drivers, reseat PCIe cards, and check for hardware conflicts." }
+103    { "Event ID: 103 Hardware error - PCI Express Device Error - Remediation: Update drivers for the PCIe 	device, reseat or replace hardware if errors persist." }
+104    { "Event ID: 104 Hardware error - PCI Express Bridge Error - Remediation: Update motherboard BIOS and 	drivers, verify hardware compatibility, and test/remove problematic PCIe devices." }
+4101   { "Event ID: 4101 Kernel-Power - System entered sleep state - Remediation: No action needed unless system 	fails to resume properly; then check power settings and device drivers." }
+4102   { "Event ID: 4102 Kernel-Power - System resumed from sleep - Remediation: Verify devices and drivers support 	sleep/resume; update drivers if issues occur during resume." }
+
+    # Network Errors
+    4201  { "Event ID: 4201 Network adapter connected. Check network configuration." }
+    4202  { "Event ID: 4202 Network adapter disconnected. Verify physical connection and drivers." }
+    4321  { "Event ID: 4321 TCP/IP failed to establish a connection. Check firewall and network settings." }
+    1058  { "Event ID: 1058 Group Policy processing failed due to network unavailability." }
+    1059  { "Event ID: 1059 Network location profile issue. Check network settings." }
+    10110 { "Event ID: 10110 DNS server unavailable. Verify DNS server address and connectivity." }
+    10111 { "Event ID: 10111 DHCP client failed to obtain IP address. Restart DHCP client service." }
+    10400 { "Event ID: 10400 Network interface error. Update drivers or check hardware." }
+
+    # Disk Errors
+    7     { "Event ID: 7 Disk hardware error detected. Backup data and replace disk." }
+    9     { "Event ID: 9 Disk controller failure. Check and replace hardware as needed." }
+    137   { "Event ID: 137 Disk driver failure. Update or rollback driver." }
+
+    # Security Errors
+1100  { "Event ID: 1100 The event logging service has shut down" }
+1101  { "Event ID: 1101 Audit events have been dropped by the transport" }
+1102  { "Event ID: 1102 The audit log was cleared" }
+1104  { "Event ID: 1104 The security Log is now full" }
+1105  { "Event ID: 1105 Event log automatic backup" }
+1108  { "Event ID: 1108 The event logging service encountered an error" }
+4608  { "Event ID: 4608 Windows is starting up" }
+4609  { "Event ID: 4609 Windows is shutting down" }
+4610  { "Event ID: 4610 An authentication package has been loaded by the Local Security Authority" }
+4611  { "Event ID: 4611 A trusted logon process has been registered with the Local Security Authority" }
+4612  { "Event ID: 4612 Internal resources allocated for the queuing of audit messages have been exhausted, leading 	to the loss of some audits" }
+4614  { "Event ID: 4614 A notification package has been loaded by the Security Account Manager" }
+4615  { "Event ID: 4615 Invalid use of LPC port" }
+4616  { "Event ID: 4616 The system time was changed" }
+4618  { "Event ID: 4618 A monitored security event pattern has occurred" }
+4621  { "Event ID: 4621 Administrator recovered system from CrashOnAuditFail" }
+4622  { "Event ID: 4622 A security package has been loaded by the Local Security Authority" }
+4624  { "Event ID: 4624 An account was successfully logged on" }
+4625  { "Event ID: 4625 An account failed to log on" }
+4626  { "Event ID: 4626 User/Device claims information" }
+4627  { "Event ID: 4627 Group membership information" }
+4634  { "Event ID: 4634 An account was logged off" }
+4646  { "Event ID: 4646 IKE DoS-prevention mode started" }
+4647  { "Event ID: 4647 User initiated logoff" }
+4648  { "Event ID: 4648 A logon was attempted using explicit credentials" }
+4649  { "Event ID: 4649 A replay attack was detected" }
+4650  { "Event ID: 4650 An IPsec Main Mode security association was established" }
+4651  { "Event ID: 4651 An IPsec Main Mode security association was established" }
+4652  { "Event ID: 4652 An IPsec Main Mode negotiation failed" }
+4653  { "Event ID: 4653 An IPsec Main Mode negotiation failed" }
+4654  { "Event ID: 4654 An IPsec Quick Mode negotiation failed" }
+4655  { "Event ID: 4655 An IPsec Main Mode security association ended" }
+4656  { "Event ID: 4656 A handle to an object was requested" }
+4657  { "Event ID: 4657 A registry value was modified" }
+4658  { "Event ID: 4658 The handle to an object was closed" }
+4659  { "Event ID: 4659 A handle to an object was requested with intent to delete" }
+4660  { "Event ID: 4660 An object was deleted" }
+4661  { "Event ID: 4661 A handle to an object was requested" }
+4662  { "Event ID: 4662 An operation was performed on an object" }
+4663  { "Event ID: 4663 An attempt was made to access an object" }
+4664  { "Event ID: 4664 An attempt was made to create a hard link" }
+4665  { "Event ID: 4665 An attempt was made to create an application client context" }
+4666  { "Event ID: 4666 An application attempted an operation" }
+4667  { "Event ID: 4667 An application client context was deleted" }
+4668  { "Event ID: 4668 An application was initialized" }
+4670  { "Event ID: 4670 Permissions on an object were changed" }
+4671  { "Event ID: 4671 An application attempted to access a blocked ordinal through the TBS" }
+4672  { "Event ID: 4672 Special privileges assigned to new logon" }
+4673  { "Event ID: 4673 A privileged service was called" }
+4674  { "Event ID: 4674 An operation was attempted on a privileged object" }
+4675  { "Event ID: 4675 SIDs were filtered" }
+4688  { "Event ID: 4688 A new process has been created" }
+4689  { "Event ID: 4689 A process has exited" }
+4690  { "Event ID: 4690 An attempt was made to duplicate a handle to an object" }
+4691  { "Event ID: 4691 Indirect access to an object was requested" }
+4692  { "Event ID: 4692 Backup of data protection master key was attempted" }
+4693  { "Event ID: 4693 Recovery of data protection master key was attempted" }
+4694  { "Event ID: 4694 Protection of auditable protected data was attempted" }
+4695  { "Event ID: 4695 Unprotection of auditable protected data was attempted" }
+4696  { "Event ID: 4696 A primary token was assigned to process" }
+4697  { "Event ID: 4697 A service was installed in the system" }
+4698  { "Event ID: 4698 A scheduled task was created" }
+4699  { "Event ID: 4699 A scheduled task was deleted" }
+4700  { "Event ID: 4700 A scheduled task was enabled" }
+4701  { "Event ID: 4701 A scheduled task was disabled" }
+4702  { "Event ID: 4702 A scheduled task was updated" }
+4703  { "Event ID: 4703 A token right was adjusted" }
+5031  { "Event ID: 5031 The Windows Firewall Service blocked an application from accepting incoming connections on 	the network" }
+5032  { "Event ID: 5032 Windows Firewall was unable to notify the user that it blocked an application from 	accepting incoming connections on the network" }
+5033  { "Event ID: 5033 The Windows Firewall Driver has started successfully" }
+5034  { "Event ID: 5034 The Windows Firewall Driver has been stopped" }
+5035  { "Event ID: 5035 The Windows Firewall Driver failed to start" }
+5037  { "Event ID: 5037 The Windows Firewall Driver detected critical runtime error. Terminating" }
+5038  { "Event ID: 5038 Code integrity determined that the image hash of a file is not valid" }
+5039  { "Event ID: 5039 A registry key was virtualized." }
+5040  { "Event ID: 5040 A change has been made to IPsec settings. An Authentication Set was added." }
+5041  { "Event ID: 5041 A change has been made to IPsec settings. An Authentication Set was modified" }
+5042  { "Event ID: 5042 A change has been made to IPsec settings. An Authentication Set was deleted" }
+5043  { "Event ID: 5043 A change has been made to IPsec settings. A Connection Security Rule was added" }
+5044  { "Event ID: 5044 A change has been made to IPsec settings. A Connection Security Rule was modified" }
+5045  { "Event ID: 5045 A change has been made to IPsec settings. A Connection Security Rule was deleted" }
+5046  { "Event ID: 5046 A change has been made to IPsec settings. A Crypto Set was added" }
+5047  { "Event ID: 5047 A change has been made to IPsec settings. A Crypto Set was modified" }
+5048  { "Event ID: 5048 A change has been made to IPsec settings. A Crypto Set was deleted" }
+5049  { "Event ID: 5049 An IPsec Security Association was deleted" }
+5050  { "Event ID: 5050 An attempt to programmatically disable the Windows Firewall using a call to 	INetFwProfile.FirewallEnabled(FALSE" }
+5051  { "Event ID: 5051 A file was virtualized" }
+5056  { "Event ID: 5056 A cryptographic self test was performed" }
+5057  { "Event ID: 5057 A cryptographic primitive operation failed" }
+5058  { "Event ID: 5058 Key file operation" }
+5059  { "Event ID: 5059 Key migration operation" }
+5060  { "Event ID: 5060 Verification operation failed" }
+5061  { "Event ID: 5061 Cryptographic operation" }
+5062  { "Event ID: 5062 A kernel-mode cryptographic self test was performed" }
+5063  { "Event ID: 5063 A cryptographic provider operation was attempted" }
+5064  { "Event ID: 5064 A cryptographic context operation was attempted" }
+5065  { "Event ID: 5065 A cryptographic context modification was attempted" }
+5066  { "Event ID: 5066 A cryptographic function operation was attempted" }
+5067  { "Event ID: 5067 A cryptographic function modification was attempted" }
+5068  { "Event ID: 5068 A cryptographic function provider operation was attempted" }
+5069  { "Event ID: 5069 A cryptographic function property operation was attempted" }
+5070  { "Event ID: 5070 A cryptographic function property operation was attempted" }
+5071  { "Event ID: 5071 Key access denied by Microsoft key distribution service" }
+5120  { "Event ID: 5120 OCSP Responder Service Started" }
+5121  { "Event ID: 5121 OCSP Responder Service Stopped" }
+5122  { "Event ID: 5122 A Configuration entry changed in the OCSP Responder Service" }
+5123  { "Event ID: 5123 A configuration entry changed in the OCSP Responder Service" }
+5124  { "Event ID: 5124 A security setting was updated on OCSP Responder Service" }
+5125  { "Event ID: 5125 A request was submitted to OCSP Responder Service" }
+5126  { "Event ID: 5126 Signing Certificate was automatically updated by the OCSP Responder Service" }
+5127  { "Event ID: 5127 The OCSP Revocation Provider successfully updated the revocation information" }
+5136  { "Event ID: 5136 A directory service object was modified" }
+5137  { "Event ID: 5137 A directory service object was created" }
+5138  { "Event ID: 5138 A directory service object was undeleted" }
+5139  { "Event ID: 5139 A directory service object was moved" }
+5140  { "Event ID: 5140 A network share object was accessed" }
+5141  { "Event ID: 5141 A directory service object was deleted" }
+5142  { "Event ID: 5142 A network share object was added." }
+5143  { "Event ID: 5143 A network share object was modified" }
+5144  { "Event ID: 5144 A network share object was deleted." }
+5145  { "Event ID: 5145 A network share object was checked to see whether client can be granted desired access" }
+5146  { "Event ID: 5146 The Windows Filtering Platform has blocked a packet" }
+5147  { "Event ID: 5147 A more restrictive Windows Filtering Platform filter has blocked a packet" }
+5148  { "Event ID: 5148 The Windows Filtering Platform has detected a DoS attack and entered a defensive mode; 	packets associated with this attack will be discarded." }
+5149  { "Event ID: 5149 The DoS attack has subsided and normal processing is being resumed." }
+5150  { "Event ID: 5150 The Windows Filtering Platform has blocked a packet." }
+5151  { "Event ID: 5151 A more restrictive Windows Filtering Platform filter has blocked a packet." }
+5152  { "Event ID: 5152 The Windows Filtering Platform blocked a packet" }
+5153  { "Event ID: 5153 A more restrictive Windows Filtering Platform filter has blocked a packet" }
+5154  { "Event ID: 5154 The Windows Filtering Platform has permitted an application or service to listen on a port 	for incoming connections" }
+5155  { "Event ID: 5155 The Windows Filtering Platform has blocked an application or service from listening on a 	port for incoming connections" }
+5156  { "Event ID: 5156 The Windows Filtering Platform has allowed a connection" }
+5157  { "Event ID: 5157 The Windows Filtering Platform has blocked a connection" }
+5158  { "Event ID: 5158 The Windows Filtering Platform has permitted a bind to a local port" }
+5159  { "Event ID: 5159 The Windows Filtering Platform has blocked a bind to a local port" }
+5168  { "Event ID: 5168 Spn check for SMB/SMB2 fails." }
+5169  { "Event ID: 5169 A directory service object was modified" }
+5170  { "Event ID: 5170 A directory service object was modified during a background cleanup task" }
+5376  { "Event ID: 5376 Credential Manager credentials were backed up" }
+5377  { "Event ID: 5377 Credential Manager credentials were restored from a backup" }
+5378  { "Event ID: 5378 The requested credentials delegation was disallowed by policy" }
+5379  { "Event ID: 5379 Credential Manager credentials were read" }
+5380  { "Event ID: 5380 Vault Find Credential" }
+5381  { "Event ID: 5381 Vault credentials were read" }
+5382  { "Event ID: 5382 Vault credentials were read" }
+5440  { "Event ID: 5440 The following callout was present when the Windows Filtering Platform Base Filtering Engine 	started" }
+5441  { "Event ID: 5441 The following filter was present when the Windows Filtering Platform Base Filtering Engine 	started" }
+5442  { "Event ID: 5442 The following provider was present when the Windows Filtering Platform Base Filtering 	Engine started" }
+5443  { "Event ID: 5443 The following provider context was present when the Windows Filtering Platform Base 	Filtering Engine started" }
+5444  { "Event ID: 5444 The following sub-layer was present when the Windows Filtering Platform Base Filtering 	Engine started" }
+5446  { "Event ID: 5446 A Windows Filtering Platform callout has been changed" }
+5447  { "Event ID: 5447 A Windows Filtering Platform filter has been changed" }
+5448  { "Event ID: 5448 A Windows Filtering Platform provider has been changed" }
+5449  { "Event ID: 5449 A Windows Filtering Platform provider context has been changed" }
+5450  { "Event ID: 5450 A Windows Filtering Platform sub-layer has been changed" }
+5451  { "Event ID: 5451 An IPsec Quick Mode security association was established" }
+5452  { "Event ID: 5452 An IPsec Quick Mode security association ended" }
+5453  { "Event ID: 5453 An IPsec negotiation with a remote computer failed because the IKE and AuthIP IPsec Keying 	Modules (IKEEXT) service is not started" }
+5456  { "Event ID: 5456 PAStore Engine applied Active Store" }
+5457  { "Event ID: 5457 PAStore Engine failed to apply some rules of the Active Store" }
+5458  { "Event ID: 5458 PAStore Engine polled for changes to the Active Store" }
+5459  { "Event ID: 5459 PAStore Engine failed to apply some rules of the Active Store" }
+5460  { "Event ID: 5460 PAStore Engine loaded local policy" }
+5461  { "Event ID: 5461 PAStore Engine failed to load local policy" }
+5462  { "Event ID: 5462 PAStore Engine applied local policy" }
+5463  { "Event ID: 5463 PAStore Engine failed to apply local policy" }
+5464  { "Event ID: 5464 PAStore Engine loaded directory services policy" }
+5465  { "Event ID: 5465 PAStore Engine failed to load directory services policy" }
+5466  { "Event ID: 5466 PAStore Engine applied directory services policy" }
+5467  { "Event ID: 5467 PAStore Engine failed to apply directory services policy" }
+5468  { "Event ID: 5468 PAStore Engine loaded IPsec Services policy" }
+5469  { "Event ID: 5469 PAStore Engine failed to load IPsec Services policy" }
+5470  { "Event ID: 5470 PAStore Engine applied IPsec Services policy" }
+5471  { "Event ID: 5471 PAStore Engine failed to apply IPsec Services policy" }
+5472  { "Event ID: 5472 PAStore Engine applied Active Store" }
+5473  { "Event ID: 5473 PAStore Engine failed to apply some rules of the Active Store" }
+5474  { "Event ID: 5474 PAStore Engine polled for changes to the Active Store" }
+5475  { "Event ID: 5475 PAStore Engine failed to apply some rules of the Active Store" }
+5476  { "Event ID: 5476 PAStore Engine polled for changes to the Active Store" }
+5477  { "Event ID: 5477 PAStore Engine failed to apply some rules of the Active Store" }
+5478  { "Event ID: 5478 IPsec Services has started successfully" }
+5479  { "Event ID: 5479 IPsec Services failed to start" }
+5480  { "Event ID: 5480 IPsec Services has been shut down successfully" }
+5483  { "Event ID: 5483 IPsec Services failed to get the complete list of network interfaces on the computer" }
+5484  { "Event ID: 5484 IPsec Services failed to initialize RPC server" }
+5485  { "Event ID: 5485 IPsec Services failed to process some IPsec filters on a plug-and-play event for network 	interfaces" }
+5486  { "Event ID: 5486 IPsec Services failed to process some IPsec filters on a re-apply policy event" }
+5632  { "Event ID: 5632 A request was made to authenticate to a wireless network" }
+5633  { "Event ID: 5633 A request was made to authenticate to a wired network" }
+5712  { "Event ID: 5712 A Remote Procedure Call (RPC) was attempted" }
+5888  { "Event ID: 5888 An object in the COM+ Catalog was modified" }
+5889  { "Event ID: 5889 An object was deleted from the COM+ Catalog" }
+5890  { "Event ID: 5890 An object was added to the COM+ Catalog" }
+6144  { "Event ID: 6144 Security policy in the group policy objects has been applied successfully" }
+6145  { "Event ID: 6145 One or more errors occured while processing security policy in the group policy objects" }
+6272  { "Event ID: 6272 Network Policy Server granted access to a user" }
+6273  { "Event ID: 6273 Network Policy Server denied access to a user" }
+6274  { "Event ID: 6274 Network Policy Server discarded the request for a user" }
+6275  { "Event ID: 6275 Network Policy Server discarded the accounting request for a user" }
+6276  { "Event ID: 6276 Network Policy Server quarantined a user" }
+6277  { "Event ID: 6277 Network Policy Server granted access to a user but put it on probation because the host did 	not meet the defined health policy" }
+6278  { "Event ID: 6278 Network Policy Server granted full access to a user because the host met the defined health 	policy" }
+6279  { "Event ID: 6279 Network Policy Server locked the user account due to repeated failed authentication 	attempts" }
+6280  { "Event ID: 6280 Network Policy Server unlocked the user account" }
+6281  { "Event ID: 6281 Code Integrity determined that the page hashes of an image file are not valid..." }
+6400  { "Event ID: 6400 BranchCache: Received an incorrectly formatted response while discovering availability of 	content." }
+6401  { "Event ID: 6401 BranchCache: Received invalid data from a peer. Data discarded." }
+6402  { "Event ID: 6402 BranchCache: The message to the hosted cache offering it data is incorrectly formatted." }
+6403  { "Event ID: 6403 BranchCache: The hosted cache sent an incorrectly formatted response to the client's message to offer it data." }
+6404  { "Event ID: 6404 BranchCache: Hosted cache could not be authenticated using the provisioned SSL 	certificate." }
+6405  { "Event ID: 6405 BranchCache: %2 instance(s) of event id %1 occurred." }
+6406  { "Event ID: 6406 %1 registered to Windows Firewall to control filtering for the following:" }
+6407  { "Event ID: 6407 %1" }
+6408  { "Event ID: 6408 Registered product %1 failed and Windows Firewall is now controlling the filtering for %	2." }
+6409  { "Event ID: 6409 BranchCache: A service connection point object could not be parsed" }
+6410  { "Event ID: 6410 Code integrity determined that a file does not meet the security requirements to load into 	a process. This could be due to the use of shared sections or other issues" }
+6416  { "Event ID: 6416 A new external device was recognized by the system." }
+6417  { "Event ID: 6417 The FIPS mode crypto selftests succeeded" }
+6418  { "Event ID: 6418 The FIPS mode crypto selftests failed" }
+6419  { "Event ID: 6419 A request was made to disable a device" }
+6420  { "Event ID: 6420 A device was disabled" }
+6421  { "Event ID: 6421 A request was made to enable a device" }
+6422  { "Event ID: 6422 A device was enabled" }
+6423  { "Event ID: 6423 The installation of this device is forbidden by system policy" }
+6424  { "Event ID: 6424 The installation of this device was allowed, after having previously been forbidden by 	policy" }
+8191  { "Event ID: 8191 Highest System-Defined Audit Message Value" }
+
+
+
+    default { $null }
+}
+
+
+                if ($remediation) {
+                    Write-Host "Remediation: $remediation" -ForegroundColor Magenta
+                    # Store remediation with log source
+                    $allRemediations += [PSCustomObject]@{
+                        Log = $log
+                        Remediation = $remediation
+                    }
+                }
+
+                Write-Host "----------------------------------------"
+            }
+        }
+    }
+    catch {
+        Write-Host "Successfully read $log log: $_" -ForegroundColor Green
+    }
+}
+
+# Print unique remediation suggestions at the end, grouped by Log
+Write-Host "`n=== Suggested Remediations Summary ===" -ForegroundColor Cyan
+
+foreach ($log in $logs) {
+    $remediationsForLog = $allRemediations | Where-Object { $_.Log -eq $log } | Select-Object -ExpandProperty Remediation | Sort-Object -Unique
+
+    if ($remediationsForLog.Count -gt 0) {
+        Write-Host "`nFrom $log Log:" -ForegroundColor Cyan
+        foreach ($remediation in $remediationsForLog) {
+            Write-Host "- $remediation" -ForegroundColor DarkGreen
+        }
+    }
+    else {
+        Write-Host "`nNo remediations found for $log log." -ForegroundColor Green
+    }
+}
