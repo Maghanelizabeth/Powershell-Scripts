@@ -1,0 +1,140 @@
+Applies strict Windows SCHANNEL hardening by disabling legacy SSL/TLS protocols and weak ciphers, then enforcing an AEAD-only cipher suite policy using AES-GCM cipher suites.
+
+Detailed Description
+
+This PowerShell script implements a high-security SCHANNEL configuration by:
+
+Verifying Administrator privileges before making changes.
+Disabling insecure and deprecated protocols:
+SSL 2.0
+SSL 3.0
+TLS 1.0
+TLS 1.1
+Enabling only TLS 1.2.
+Configuring both Client and Server SCHANNEL settings.
+Disabling legacy and vulnerable ciphers:
+Triple DES (3DES)
+RC4 (128-bit and 56-bit variants)
+DES
+NULL ciphers
+Enforcing a restricted cipher suite policy through Group Policy registry settings.
+Limiting TLS negotiations to authenticated encryption (AEAD) cipher suites:
+TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+Blocking fallback to weaker CBC-based and non-forward-secret cipher suites.
+Providing configuration status output and verification messages.
+Security Benefits
+Eliminates obsolete SSL and early TLS versions.
+Removes ciphers vulnerable to attacks such as:
+SWEET32 (3DES)
+RC4 cryptographic weaknesses
+DES brute-force attacks
+Enforces Forward Secrecy through ECDHE key exchange.
+Restricts encryption to AES-GCM authenticated encryption modes.
+Reduces attack surface by allowing only modern cipher suites.
+
+
+
+
+[CmdletBinding()]
+param ()
+
+begin {
+
+    function Test-IsElevated {
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $p = New-Object System.Security.Principal.WindowsPrincipal($id)
+        $p.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+
+    if (-not (Test-IsElevated)) {
+        Write-Error "Access Denied. Run as Administrator."
+        exit 1
+    }
+
+    $protocolBase = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols"
+    $cipherBase   = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers"
+    $configBase   = "HKLM:\SOFTWARE\Policies\Microsoft\Cryptography\Configuration\SSL\00010002"
+}
+
+process {
+
+    # ---------------------------
+    # TLS PROTOCOL HARDENING
+    # ---------------------------
+    $protocols = @(
+        @{ Name="SSL 2.0"; Enabled=0; Default=1 },
+        @{ Name="SSL 3.0"; Enabled=0; Default=1 },
+        @{ Name="TLS 1.0"; Enabled=0; Default=1 },
+        @{ Name="TLS 1.1"; Enabled=0; Default=1 },
+        @{ Name="TLS 1.2"; Enabled=1; Default=0 }
+    )
+
+    foreach ($p in $protocols) {
+
+        foreach ($role in @("Server","Client")) {
+
+            $path = "$protocolBase\$($p.Name)\$role"
+
+            New-Item $path -Force | Out-Null
+            New-ItemProperty -Path $path -Name "Enabled" -Value $p.Enabled -PropertyType DWord -Force | Out-Null
+            New-ItemProperty -Path $path -Name "DisabledByDefault" -Value $p.Default -PropertyType DWord -Force | Out-Null
+        }
+
+        Write-Output "$($p.Name) configured."
+    }
+
+    # ---------------------------
+    # LEGACY CIPHER DISABLE (NON-AEAD)
+    # ---------------------------
+
+    $legacyCiphers = @(
+        "Triple DES 168",
+        "RC4 128/128",
+        "RC4 56/128",
+        "DES 56/56",
+        "NULL"
+    )
+
+    foreach ($cipher in $legacyCiphers) {
+
+        $path = "$cipherBase\$cipher"
+
+        New-Item $path -Force | Out-Null
+        New-ItemProperty -Path $path -Name "Enabled" -Value 0 -PropertyType DWord -Force | Out-Null
+
+        Write-Output "Disabled legacy cipher: $cipher"
+    }
+
+    # ---------------------------
+    # FORCE AEAD-ONLY CIPHER SUITES
+    # ---------------------------
+    $aeadSuites = @(
+        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+        "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+    )
+
+    $suiteString = ($aeadSuites -join ",")
+
+    New-Item $configBase -Force | Out-Null
+    New-ItemProperty -Path $configBase -Name "Functions" -Value $suiteString -PropertyType String -Force | Out-Null
+
+    Write-Output "AEAD cipher suite policy applied:"
+    foreach ($s in $aeadSuites) {
+        Write-Output "  - $s"
+    }
+
+    # ---------------------------
+    # 3DES explicit mapping note
+    # ---------------------------
+    Write-Output ""
+    Write-Output "3DES STATUS: DISABLED (affects TLS_RSA_WITH_3DES_EDE_CBC_SHA and variants)"
+
+    # ---------------------------
+    # FINAL OUTPUT
+    # ---------------------------
+    Write-Output ""
+    Write-Output "TLS HARDENING COMPLETE (AEAD-ONLY MODE)"
+}
+
+end {}
