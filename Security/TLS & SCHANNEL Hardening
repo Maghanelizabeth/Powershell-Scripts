@@ -1,0 +1,89 @@
+Hardens Windows SCHANNEL security settings by disabling legacy SSL/TLS protocols (SSL 2.0, SSL 3.0, TLS 1.0, TLS 1.1), enforcing TLS 1.2, and disabling the vulnerable 3DES cipher suite (TLS_RSA_WITH_3DES_EDE_CBC_SHA) through registry configuration. Requires Administrator privileges.
+
+Detailed Description
+
+This PowerShell script applies security hardening to the Windows SCHANNEL provider by:
+
+Verifying the script is run with Administrator privileges.
+Disabling outdated and insecure protocols:
+SSL 2.0
+SSL 3.0
+TLS 1.0
+TLS 1.1
+Enabling TLS 1.2 for both client and server communications.
+Configuring DisabledByDefault registry settings to prevent legacy protocol fallback.
+Disabling the Triple DES (3DES 168-bit) cipher to mitigate vulnerabilities such as SWEET32.
+Writing the required registry values under:
+HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols
+HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers
+Providing status output for each configuration step.
+
+
+[CmdletBinding()]
+param ()
+
+begin {
+    function Test-IsElevated {
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $p = New-Object System.Security.Principal.WindowsPrincipal($id)
+        $p.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+
+    if (-not (Test-IsElevated)) {
+        Write-Error "Access Denied. Run as Administrator."
+        exit 1
+    }
+
+    $protocolBase = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols"
+    $cipherBase   = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers"
+}
+
+process {
+
+    # ---------------------------
+    # TLS Protocol Hardening
+    # ---------------------------
+    $protocols = @(
+        @{ Name="SSL 2.0"; Enabled=0; Default=1 },
+        @{ Name="SSL 3.0"; Enabled=0; Default=1 },
+        @{ Name="TLS 1.0"; Enabled=0; Default=1 },
+        @{ Name="TLS 1.1"; Enabled=0; Default=1 },
+        @{ Name="TLS 1.2"; Enabled=1; Default=0 }
+    )
+
+    foreach ($p in $protocols) {
+
+        $server = "$protocolBase\$($p.Name)\Server"
+        $client = "$protocolBase\$($p.Name)\Client"
+
+        New-Item $server -Force | Out-Null
+        New-Item $client -Force | Out-Null
+
+        New-ItemProperty -Path $server -Name "Enabled" -Value $p.Enabled -PropertyType DWord -Force | Out-Null
+        New-ItemProperty -Path $server -Name "DisabledByDefault" -Value $p.Default -PropertyType DWord -Force | Out-Null
+
+        New-ItemProperty -Path $client -Name "Enabled" -Value $p.Enabled -PropertyType DWord -Force | Out-Null
+        New-ItemProperty -Path $client -Name "DisabledByDefault" -Value $p.Default -PropertyType DWord -Force | Out-Null
+
+        Write-Output "$($p.Name) configured."
+    }
+
+    # ---------------------------
+    # Cipher Hardening (3DES removal)
+    # ---------------------------
+
+    $desKey = "Triple DES 168"
+    $desPath = "$cipherBase\$desKey"
+
+    New-Item $desPath -Force | Out-Null
+    New-ItemProperty -Path $desPath -Name "Enabled" -Value 0 -PropertyType DWord -Force | Out-Null
+
+    Write-Output "Disabled cipher: $desKey (TLS_RSA_WITH_3DES_EDE_CBC_SHA)"
+
+    # ---------------------------
+    # Optional verification
+    # ---------------------------
+    Write-Output "TLS and cipher hardening completed successfully."
+}
+
+end {}
