@@ -1,0 +1,127 @@
+Reverts AEAD-only SCHANNEL hardening by restoring legacy SSL/TLS protocols, re-enabling disabled ciphers, and removing custom cipher suite restrictions from Windows.
+
+Detailed Description
+
+This PowerShell script restores Windows SCHANNEL settings after applying a strict AEAD-only TLS hardening policy by:
+
+Verifying Administrator privileges before making changes.
+Restoring protocol support for:
+SSL 2.0
+SSL 3.0
+TLS 1.0
+TLS 1.1
+TLS 1.2
+Re-enabling both Client and Server protocol configurations.
+Re-enabling previously disabled ciphers:
+Triple DES (3DES)
+RC4 128-bit
+RC4 56-bit
+DES
+NULL ciphers
+Removing the custom SCHANNEL cipher suite policy stored in:
+HKLM\SOFTWARE\Policies\Microsoft\Cryptography\Configuration\SSL\00010002
+Restoring Windows' default cipher suite selection behavior.
+Providing progress and completion output.
+Recommending a system reboot to ensure SCHANNEL reloads the updated configuration.
+
+
+
+
+[CmdletBinding()]
+param ()
+
+begin {
+
+    function Test-IsElevated {
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $p = New-Object System.Security.Principal.WindowsPrincipal($id)
+        $p.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+
+    if (-not (Test-IsElevated)) {
+        Write-Error "Access Denied. Run as Administrator."
+        exit 1
+    }
+
+    $protocolBase = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols"
+    $cipherBase   = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers"
+    $configBase   = "HKLM:\SOFTWARE\Policies\Microsoft\Cryptography\Configuration\SSL\00010002"
+}
+
+process {
+
+    Write-Output "=== TLS / CIPHER ROLLBACK INITIATED ==="
+    Write-Output ""
+
+    # ---------------------------
+    # RESTORE TLS PROTOCOLS
+    # ---------------------------
+    $protocols = @("SSL 2.0","SSL 3.0","TLS 1.0","TLS 1.1","TLS 1.2")
+
+    foreach ($p in $protocols) {
+
+        foreach ($role in @("Server","Client")) {
+
+            $path = "$protocolBase\$p\$role"
+
+            if (!(Test-Path $path)) {
+                New-Item $path -Force | Out-Null
+            }
+
+            # Restore default Windows behavior (enable where applicable)
+            switch ($p) {
+                "TLS 1.2" {
+                    New-ItemProperty -Path $path -Name "Enabled" -Value 1 -PropertyType DWord -Force | Out-Null
+                    New-ItemProperty -Path $path -Name "DisabledByDefault" -Value 0 -PropertyType DWord -Force | Out-Null
+                }
+                default {
+                    New-ItemProperty -Path $path -Name "Enabled" -Value 1 -PropertyType DWord -Force | Out-Null
+                    New-ItemProperty -Path $path -Name "DisabledByDefault" -Value 0 -PropertyType DWord -Force | Out-Null
+                }
+            }
+        }
+
+        Write-Output "$p restored to default-enabled state."
+    }
+
+    # ---------------------------
+    # RE-ENABLE LEGACY CIPHERS
+    # ---------------------------
+    $legacyCiphers = @(
+        "Triple DES 168",
+        "RC4 128/128",
+        "RC4 56/128",
+        "DES 56/56",
+        "NULL"
+    )
+
+    foreach ($cipher in $legacyCiphers) {
+
+        $path = "$cipherBase\$cipher"
+
+        if (!(Test-Path $path)) {
+            New-Item $path -Force | Out-Null
+        }
+
+        # Re-enable cipher
+        New-ItemProperty -Path $path -Name "Enabled" -Value 1 -PropertyType DWord -Force | Out-Null
+
+        Write-Output "Re-enabled cipher: $cipher"
+    }
+
+    # ---------------------------
+    # REMOVE CUSTOM AEAD CIPHER SUITE POLICY
+    # ---------------------------
+    if (Test-Path $configBase) {
+
+        Remove-ItemProperty -Path $configBase -Name "Functions" -ErrorAction SilentlyContinue
+
+        Write-Output "Removed custom cipher suite ordering (AEAD-only policy cleared)."
+    }
+
+    Write-Output ""
+    Write-Output "=== ROLLBACK COMPLETE ==="
+    Write-Output "Reboot recommended for full SCHANNEL reload."
+}
+
+end {}
