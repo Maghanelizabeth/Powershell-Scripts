@@ -1,0 +1,103 @@
+##This PowerShell script performs a security configuration audit of Windows SCHANNEL settings, focusing on TLS protocol versions and legacy cipher usage (specifically 3DES). 
+##It is designed to help identify insecure cryptographic configurations that may violate modern security baselines.
+##What the script does:
+##The script checks system-level SCHANNEL registry settings to determine whether legacy and modern TLS protocols are enabled or disabled, and evaluates the status of the 3DES cipher suite.
+##It requires administrative privileges to access and read the relevant registry paths.
+
+
+[CmdletBinding()]
+param ()
+
+begin {
+
+ function Test-IsElevated {
+ $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+ $p = New-Object System.Security.Principal.WindowsPrincipal($id)
+ $p.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+ }
+
+ if (-not (Test-IsElevated)) {
+ Write-Error "Run as Administrator."
+ exit 1
+ }
+
+ $protocolBase = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols"
+ $cipherBase = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers"
+}
+
+process {
+
+ Write-Output "=== TLS / Cipher Granular Compliance + 3DES Mapping ==="
+
+ # ---------------------------
+ # TLS Protocol checks
+ # ---------------------------
+ $checks = @(
+ @{ Name="SSL 2.0"; Path="$protocolBase\SSL 2.0\Server"; Expect=0 },
+ @{ Name="SSL 3.0"; Path="$protocolBase\SSL 3.0\Server"; Expect=0 },
+ @{ Name="TLS 1.0"; Path="$protocolBase\TLS 1.0\Server"; Expect=0 },
+ @{ Name="TLS 1.1"; Path="$protocolBase\TLS 1.1\Server"; Expect=0 },
+ @{ Name="TLS 1.2"; Path="$protocolBase\TLS 1.2\Server"; Expect=1 }
+ )
+
+ foreach ($c in $checks) {
+
+ try {
+ $enabled = Get-ItemPropertyValue -Path $c.Path -Name "Enabled" -ErrorAction Stop
+
+ if ($enabled -eq $c.Expect) {
+ Write-Output "$($c.Name): COMPLIANT | Enabled=$enabled"
+ } else {
+ Write-Output "$($c.Name): NON-COMPLIANT | Enabled=$enabled | Expected=$($c.Expect)"
+ }
+ }
+ catch {
+ Write-Output "$($c.Name): DEFAULT/NOT SET (inherits OS baseline)"
+ }
+ }
+
+ # ---------------------------
+ # 3DES Cipher Check
+ # ---------------------------
+ $desPath = "$cipherBase\Triple DES 168"
+
+ $cipherSuiteMapping = @(
+ "TLS_RSA_WITH_3DES_EDE_CBC_SHA",
+ "TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA",
+ "TLS_RSA_EXPORT_WITH_3DES_EDE_CBC_SHA"
+ )
+
+ try {
+ $desEnabled = Get-ItemPropertyValue -Path $desPath -Name "Enabled" -ErrorAction Stop
+
+ if ($desEnabled -eq 0) {
+
+ Write-Output "3DES: COMPLIANT (Disabled at cipher primitive level)"
+ Write-Output "Affected Cipher Suites (inferred disabled):"
+
+ foreach ($suite in $cipherSuiteMapping) {
+ Write-Output " - $suite (BLOCKED via SCHANNEL cipher policy)"
+ }
+
+ } else {
+
+ Write-Output "3DES: NON-COMPLIANT (Enabled=$desEnabled)"
+ Write-Output "Affected Cipher Suites (currently possible):"
+
+ foreach ($suite in $cipherSuiteMapping) {
+ Write-Output " - $suite (AVAILABLE for negotiation)"
+ }
+ }
+ }
+ catch {
+
+ Write-Output "3DES: DEFAULT/NOT CONFIGURED (likely enabled unless overridden by policy)"
+ Write-Output "Potential Cipher Suites if enabled:"
+ foreach ($suite in $cipherSuiteMapping) {
+ Write-Output " - $suite"
+ }
+ }
+
+ Write-Output "=== END REPORT ==="
+}
+end {}
