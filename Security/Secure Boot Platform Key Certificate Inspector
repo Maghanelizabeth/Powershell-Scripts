@@ -1,0 +1,70 @@
+Extracts and analyzes the Secure Boot Platform Key (PK) certificate from UEFI firmware, displaying certificate subject and thumbprint information for validation and auditing purposes.
+
+Detailed Description
+
+This PowerShell script performs a read-only inspection of the UEFI Secure Boot Platform Key (PK) by:
+
+Querying the system's Secure Boot Platform Key using:
+Get-SecureBootUEFI -Name PK
+Verifying that a Platform Key exists and contains data.
+Searching the PK binary data for an embedded X.509 certificate using ASN.1 DER certificate markers.
+Extracting the certificate payload from the Secure Boot variable.
+Writing the extracted certificate to a temporary .cer file.
+Loading the certificate into the .NET X509 certificate provider.
+Displaying key certificate metadata:
+Subject
+Thumbprint
+Reporting extraction or parsing failures when certificate data cannot be identified.
+What It Verifies
+Presence of a Secure Boot Platform Key (PK)
+Accessibility of UEFI Secure Boot variables
+Embedded X.509 certificate availability
+Certificate ownership information
+Platform Key thumbprint for inventory and comparison
+
+
+
+
+$pk = Get-SecureBootUEFI -Name PK
+
+if (-not $pk) {
+    Write-Output "No PK found"
+    exit 1
+}
+
+$bytes = $pk.Bytes
+
+if (-not $bytes) {
+    Write-Output "PK has no byte data"
+    exit 1
+}
+
+# Look for embedded certificate using ASN.1 marker
+$certStart = -1
+for ($i=0; $i -lt $bytes.Length-4; $i++) {
+    if ($bytes[$i] -eq 0x30 -and $bytes[$i+1] -eq 0x82) {
+        $certStart = $i
+        break
+    }
+}
+
+if ($certStart -lt 0) {
+    Write-Output "No certificate header found in PK (non-standard format)"
+    exit 2
+}
+
+# Extract cert
+$certBytes = $bytes[$certStart..($bytes.Length-1)]
+
+# Ensure path exists
+$path = "C:\Windows\Temp\pk_cert.cer"
+[System.IO.File]::WriteAllBytes($path, $certBytes)
+
+try {
+    $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($path)
+    $cert | Select Subject, Thumbprint | Format-List
+}
+catch {
+    Write-Output "Failed to parse certificate"
+}
+
