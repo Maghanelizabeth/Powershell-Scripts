@@ -1,0 +1,87 @@
+Restores previously disabled SSL/TLS protocols and re-enables the 3DES cipher in Windows SCHANNEL by reverting registry-based hardening settings. Requires Administrator privileges.
+
+Detailed Description
+
+This PowerShell script reverses SCHANNEL hardening changes by:
+
+Verifying the script is run with Administrator privileges.
+Re-enabling legacy protocols:
+SSL 2.0
+SSL 3.0
+TLS 1.0
+TLS 1.1
+TLS 1.2
+Setting DisabledByDefault = 0 for both client and server protocol configurations.
+Re-enabling the Triple DES (3DES 168-bit) cipher (TLS_RSA_WITH_3DES_EDE_CBC_SHA).
+Restoring registry values under:
+HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols
+HKLM\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers
+Providing status output for each restored protocol and cipher.
+
+
+
+
+[CmdletBinding()]
+param ()
+
+begin {
+    function Test-IsElevated {
+        $id = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $p = New-Object System.Security.Principal.WindowsPrincipal($id)
+        $p.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+
+    if (-not (Test-IsElevated)) {
+        Write-Error "Access Denied. Run as Administrator."
+        exit 1
+    }
+
+    $protocolBase = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols"
+    $cipherBase    = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers"
+}
+
+process {
+
+    # ---------------------------
+    # Re-enable legacy TLS/SSL protocols
+    # ---------------------------
+    $protocols = @(
+        @{ Name="SSL 2.0"; Enabled=1; Default=0 },
+        @{ Name="SSL 3.0"; Enabled=1; Default=0 },
+        @{ Name="TLS 1.0"; Enabled=1; Default=0 },
+        @{ Name="TLS 1.1"; Enabled=1; Default=0 },
+        @{ Name="TLS 1.2"; Enabled=1; Default=0 }
+    )
+
+    foreach ($p in $protocols) {
+
+        $server = "$protocolBase\$($p.Name)\Server"
+        $client = "$protocolBase\$($p.Name)\Client"
+
+        New-Item $server -Force | Out-Null
+        New-Item $client -Force | Out-Null
+
+        New-ItemProperty -Path $server -Name "Enabled" -Value $p.Enabled -PropertyType DWord -Force | Out-Null
+        New-ItemProperty -Path $server -Name "DisabledByDefault" -Value $p.Default -PropertyType DWord -Force | Out-Null
+
+        New-ItemProperty -Path $client -Name "Enabled" -Value $p.Enabled -PropertyType DWord -Force | Out-Null
+        New-ItemProperty -Path $client -Name "DisabledByDefault" -Value $p.Default -PropertyType DWord -Force | Out-Null
+
+        Write-Output "$($p.Name) restored."
+    }
+
+    # ---------------------------
+    # Re-enable 3DES cipher
+    # ---------------------------
+    $desKey = "Triple DES 168"
+    $desPath = "$cipherBase\$desKey"
+
+    New-Item $desPath -Force | Out-Null
+    New-ItemProperty -Path $desPath -Name "Enabled" -Value 1 -PropertyType DWord -Force | Out-Null
+
+    Write-Output "Re-enabled cipher: $desKey (TLS_RSA_WITH_3DES_EDE_CBC_SHA)"
+
+    Write-Output "Rollback completed successfully."
+}
+
+end {}
