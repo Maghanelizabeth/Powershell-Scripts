@@ -1,0 +1,87 @@
+Configures Windows MDM auto-enrollment policies, triggers Microsoft Intune enrollment, and creates a scheduled enrollment task while generating detailed diagnostic logs.
+
+Detailed Description
+
+This PowerShell script automates Microsoft Intune MDM enrollment remediation by:
+
+Creating a dedicated logging directory and timestamped log file.
+Recording enrollment actions and diagnostic information throughout execution.
+Capturing the current device registration state using:
+dsregcmd /status
+Configuring required MDM enrollment policy settings:
+AutoEnrollMDM = 1
+UseAADCredentialType = 1
+Removing any existing enrollment task to avoid conflicts.
+Creating a new scheduled task that runs:
+deviceenroller.exe /c /AutoEnrollMDM
+Running the enrollment process immediately without waiting for the scheduled task trigger.
+Capturing scheduled task details after creation.
+Generating a complete enrollment log for troubleshooting and audit purposes.
+
+
+
+
+$LogDir = "C:\MDMLogs"
+
+if (!(Test-Path $LogDir)) {
+    New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
+}
+
+$TimeStamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$LogFile = "$LogDir\MDM_Enroll_$TimeStamp.log"
+
+function Write-Log {
+    param([string]$Message)
+
+    $Line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
+    Add-Content -Path $LogFile -Value $Line
+    Write-Output $Line
+}
+
+Write-Log "====================================="
+Write-Log "MDM Enrollment Script Started"
+Write-Log "====================================="
+
+Write-Log "Collecting dsregcmd status..."
+dsregcmd /status | Out-File $LogFile -Append
+
+Write-Log "Configuring AutoEnrollMDM..."
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM" /v AutoEnrollMDM /t REG_DWORD /d 1 /f 2>&1 | Out-File $LogFile -Append
+
+Write-Log "Configuring UseAADCredentialType..."
+reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\MDM" /v UseAADCredentialType /t REG_DWORD /d 1 /f 2>&1 | Out-File $LogFile -Append
+
+Write-Log "Removing old scheduled task..."
+schtasks /delete /tn "MDM AutoEnroll" /f 2>&1 | Out-File $LogFile -Append
+
+$TaskTime = (Get-Date).AddMinutes(5).ToString("HH:mm")
+
+Write-Log "Creating scheduled task for $TaskTime..."
+
+$taskCmd = "$env:windir\system32\deviceenroller.exe /c /AutoEnrollMDM"
+
+schtasks /create `
+    /tn "MDM AutoEnroll" `
+    /sc once `
+    /st $TaskTime `
+    /ru SYSTEM `
+    /rl HIGHEST `
+    /tr $taskCmd `
+    /f 2>&1 | Out-File $LogFile -Append
+
+Write-Log "Starting immediate enrollment..."
+
+Start-Process "$env:windir\system32\deviceenroller.exe" `
+    -ArgumentList "/c /AutoEnrollMDM" `
+    -Wait
+
+Write-Log "Enrollment command executed."
+
+Write-Log "Dumping scheduled task info..."
+
+schtasks /query /tn "MDM AutoEnroll" /v /fo LIST 2>&1 | Out-File $LogFile -Append
+
+Write-Log "Script completed."
+Write-Log "Log file located at $LogFile"
+
+
