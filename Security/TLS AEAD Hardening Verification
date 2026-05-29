@@ -1,0 +1,119 @@
+Audits and validates Windows SCHANNEL TLS hardening settings by checking protocol status, legacy cipher configuration, and AEAD cipher suite policy enforcement.
+
+Detailed Description
+
+This PowerShell verification script performs a post-hardening assessment of Windows SCHANNEL configuration by:
+
+Reading SCHANNEL protocol settings from the Windows Registry.
+Verifying the status of:
+SSL 2.0
+SSL 3.0
+TLS 1.0
+TLS 1.1
+TLS 1.2
+Checking whether legacy cryptographic ciphers remain enabled:
+Triple DES (3DES)
+RC4 (128-bit and 56-bit variants)
+DES
+NULL ciphers
+Displaying the currently configured cipher suite policy from the Windows Cryptography policy store.
+Verifying that AEAD cipher suites (AES-GCM) are present in the configured cipher suite list.
+Producing boolean compliance flags for:
+TLS 1.0 disabled
+TLS 1.1 disabled
+TLS 1.2 enabled
+SSL 2.0 disabled
+SSL 3.0 disabled
+3DES disabled
+RC4 disabled
+DES disabled
+NULL ciphers disabled
+AEAD cipher suite presence
+Generating a human-readable verification report suitable for troubleshooting, auditing, and change validation.
+
+
+
+
+Write-Output "=== TLS AEAD HARDENING VERIFICATION ==="
+Write-Output ""
+
+# ---------------------------
+# TLS PROTOCOL CHECK
+# ---------------------------
+$base = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols"
+
+$tls10 = (Get-ItemProperty "$base\TLS 1.0\Server" -ErrorAction SilentlyContinue).Enabled
+$tls11 = (Get-ItemProperty "$base\TLS 1.1\Server" -ErrorAction SilentlyContinue).Enabled
+$tls12 = (Get-ItemProperty "$base\TLS 1.2\Server" -ErrorAction SilentlyContinue).Enabled
+
+Write-Output "TLS STATUS:"
+Write-Output "TLS 1.0 = $tls10"
+Write-Output "TLS 1.1 = $tls11"
+Write-Output "TLS 1.2 = $tls12"
+Write-Output ""
+
+# ---------------------------
+# LEGACY PROTOCOL CHECK
+# ---------------------------
+$ssl2 = (Get-ItemProperty "$base\SSL 2.0\Server" -ErrorAction SilentlyContinue).Enabled
+$ssl3 = (Get-ItemProperty "$base\SSL 3.0\Server" -ErrorAction SilentlyContinue).Enabled
+
+Write-Output "LEGACY SSL:"
+Write-Output "SSL 2.0 = $ssl2"
+Write-Output "SSL 3.0 = $ssl3"
+Write-Output ""
+
+# ---------------------------
+# LEGACY CIPHER CHECK
+# ---------------------------
+$cipherBase = "HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers"
+
+$tripleDES = (Get-ItemProperty "$cipherBase\Triple DES 168" -ErrorAction SilentlyContinue).Enabled
+$rc4_128   = (Get-ItemProperty "$cipherBase\RC4 128/128" -ErrorAction SilentlyContinue).Enabled
+$rc4_56    = (Get-ItemProperty "$cipherBase\RC4 56/128" -ErrorAction SilentlyContinue).Enabled
+$des56     = (Get-ItemProperty "$cipherBase\DES 56/56" -ErrorAction SilentlyContinue).Enabled
+$nullCipher = (Get-ItemProperty "$cipherBase\NULL" -ErrorAction SilentlyContinue).Enabled
+
+Write-Output "LEGACY CIPHERS:"
+Write-Output "3DES = $tripleDES"
+Write-Output "RC4 128 = $rc4_128"
+Write-Output "RC4 56 = $rc4_56"
+Write-Output "DES 56 = $des56"
+Write-Output "NULL = $nullCipher"
+Write-Output ""
+
+# ---------------------------
+# AEAD CIPHER SUITE POLICY CHECK
+# ---------------------------
+$configBase = "HKLM:\SOFTWARE\Policies\Microsoft\Cryptography\Configuration\SSL\00010002"
+
+$suites = (Get-ItemProperty $configBase -ErrorAction SilentlyContinue).Functions
+
+Write-Output "CIPHER SUITE POLICY:"
+Write-Output $suites
+Write-Output ""
+
+# ---------------------------
+# SIMPLE VALIDATION OUTPUT (NO BRANCHING)
+# ---------------------------
+Write-Output "=== HARDENING SUMMARY FLAGS ==="
+
+Write-Output "TLS1.0_DISABLED = $($tls10 -eq 0)"
+Write-Output "TLS1.1_DISABLED = $($tls11 -eq 0)"
+Write-Output "TLS1.2_ENABLED  = $($tls12 -eq 1)"
+
+Write-Output "SSL2_DISABLED   = $($ssl2 -eq 0)"
+Write-Output "SSL3_DISABLED   = $($ssl3 -eq 0)"
+
+Write-Output "3DES_DISABLED   = $($tripleDES -eq 0)"
+Write-Output "RC4_DISABLED    = $(($rc4_128 -eq 0) -and ($rc4_56 -eq 0))"
+Write-Output "DES_DISABLED    = $($des56 -eq 0)"
+Write-Output "NULL_DISABLED   = $($nullCipher -eq 0)"
+
+Write-Output ""
+
+# AEAD detection heuristic (GCM presence)
+Write-Output "AEAD_PRESENT = $($suites -match 'GCM')"
+
+Write-Output ""
+Write-Output "=== END VERIFICATION ==="
